@@ -1,3 +1,5 @@
+#include <thread>
+#include <vector>
 #include "image.h"
 
 
@@ -42,6 +44,41 @@ ImageYUV ImageRGB::to_yuv() {
             image.set_u(row / 2, col / 2, u);
             image.set_v(row / 2, col / 2, v);
         }
+
+    return image;
+}
+
+ImageYUV ImageRGB::to_yuv_multithread() {
+    int threads_number = std::thread::hardware_concurrency();
+
+    if (threads_number < 2)
+        return this->to_yuv();
+
+    ImageYUV image(this->height, this->width);
+    std::vector<std::thread> threads;
+
+    static auto rgb_to_yuv = [](ImageRGB &image_rgb, ImageYUV &image_yuv, int thread, int threads_number) {
+        for (int row = 0; row < image_rgb.height; ++row)
+            for (int col = thread % threads_number; col < image_rgb.width; col += threads_number)
+                image_yuv.set_y(row, col, image_rgb[row][col].get_y());
+
+        for (int row = 0; row < image_rgb.height; row += 2)
+            for (int col = thread % threads_number; col < image_rgb.width; col += 2 * threads_number) {
+                BYTE u = (0 + image_rgb[row][col].get_u() + image_rgb[row + 1][col].get_u()
+                          + image_rgb[row + 1][col].get_u() + image_rgb[row + 1][col + 1].get_u()) / 4;
+                BYTE v = (0 + image_rgb[row][col].get_v() + image_rgb[row + 1][col].get_v()
+                          + image_rgb[row + 1][col].get_v() + image_rgb[row + 1][col + 1].get_v()) / 4;
+                image_yuv.set_u(row / 2, col / 2, u);
+                image_yuv.set_v(row / 2, col / 2, v);
+            }
+    };
+
+    threads.reserve(threads_number);
+    for (int thread = 0; thread < threads_number; ++thread)
+        threads.emplace_back(rgb_to_yuv, std::ref(*this), std::ref(image), thread, threads_number);
+
+    for (int thread = 0; thread < threads_number; ++thread)
+        threads[thread].join();
 
     return image;
 }

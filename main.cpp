@@ -1,5 +1,4 @@
 #include <iostream>
-#include <fstream>
 #include "utils.h"
 
 
@@ -21,7 +20,7 @@ int main(int argc, char* argv[]) {
     int height     = atoi(argv[5]);
     int frames_num = atoi(argv[6]);
 
-    utils::insert_bmp_into_yuv(path_img, path_src, path_out, height, width, frames_num);
+    utils::compare_convert_time_rgb_to_yuv(path_img, 10000);
 
     return 0;
 }

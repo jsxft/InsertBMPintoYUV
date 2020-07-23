@@ -34,6 +34,7 @@ public:
     RGB* operator [] (int row);
 
     ImageYUV to_yuv();
+    ImageYUV to_yuv_multithread();
 };
 
 
