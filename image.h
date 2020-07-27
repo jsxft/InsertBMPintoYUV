@@ -35,6 +35,7 @@ public:
 
     ImageYUV to_yuv();
     ImageYUV to_yuv_multithread();
+    ImageYUV to_yuv_simd();
 };
 
 
@@ -60,6 +61,9 @@ public:
     void set_y(int row, int col, BYTE val);
     void set_u(int row, int col, BYTE val);
     void set_v(int row, int col, BYTE val);
+
+    void add_u(int row, int col, BYTE val);
+    void add_v(int row, int col, BYTE val);
 };
 
 

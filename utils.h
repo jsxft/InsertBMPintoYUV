@@ -44,6 +44,8 @@ namespace utils {
                              int height, int width, int frames);
     void insert_bmp_into_yuv_multithread(const std::string &path_image, const std::string &path_src,
                                          const std::string &path_dst, int height, int width, int frames);
+    void insert_bmp_into_yuv_simd(const std::string &path_image, const std::string &path_src,
+                                  const std::string &path_dst, int height, int width, int frames);
 
     void compare_convert_time_rgb_to_yuv(const std::string &path_image, int repeat_number);
 };

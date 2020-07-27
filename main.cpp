@@ -20,7 +20,11 @@ int main(int argc, char* argv[]) {
     int height     = atoi(argv[5]);
     int frames_num = atoi(argv[6]);
 
-    utils::compare_convert_time_rgb_to_yuv(path_img, 10000);
+    utils::insert_bmp_into_yuv(path_img, path_src, path_out, height, width, frames_num);
+//    utils::insert_bmp_into_yuv_multithread(path_img, path_src, path_out, height, width, frames_num);
+//    utils::insert_bmp_into_yuv_simd(path_img, path_src, path_out, height, width, frames_num);
+
+//    utils::compare_convert_time_rgb_to_yuv(path_img, 10000);
 
     return 0;
 }

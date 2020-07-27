@@ -123,6 +123,35 @@ void utils::insert_bmp_into_yuv_multithread(const std::string &path_image, const
     file_dst.close();
 }
 
+void utils::insert_bmp_into_yuv_simd(const std::string &path_image, const std::string &path_src,
+                                            const std::string &path_dst, int height, int width, int frames) {
+    auto image_rgb = read_bmp(path_image);
+    auto image_yuv = image_rgb.to_yuv_simd();
+    auto frame = ImageYUV(height, width);
+
+    std::fstream file_src(path_src, std::fstream::in | std::fstream::binary);
+    std::fstream file_dst(path_dst, std::fstream::out | std::fstream::binary);
+
+    for (int frame_num = 0; frame_num < frames; ++frame_num) {
+        file_src.read((char *)frame.get_buff(), frame.get_buff_size());
+
+        for (int row = 0; row < image_yuv.get_height(); ++row)
+            for (int col = 0; col < image_yuv.get_width(); ++col)
+                frame.set_y(row, col, image_yuv.get_y(row, col));
+
+        for (int row = 0; row < image_yuv.get_height() / 2; ++row)
+            for (int col = 0; col < image_yuv.get_width() / 2; ++col) {
+                frame.set_u(row, col, image_yuv.get_u(row, col));
+                frame.set_v(row, col, image_yuv.get_v(row, col));
+            }
+
+        file_dst.write((char *)frame.get_buff(), frame.get_buff_size());
+    }
+
+    file_src.close();
+    file_dst.close();
+}
+
 void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int repeat_number) {
     auto image_rgb = read_bmp(path_image);
 
@@ -139,27 +168,43 @@ void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int r
             max_time = duration.count();
     }
 
-    std::cout << "Naive:       ";
+    std::cout << "Simple:      ";
     std::cout << "average time = " << total_time / 1000.0 / repeat_number << " ms, ";
     std::cout << "max time = " << max_time / 1000.0 << " ms" << std::endl;
 
     total_time = 0;
     max_time = 0;
 
-    if (std::thread::hardware_concurrency() > 2) {
-        for (int i = 0; i < repeat_number; ++i) {
-            auto start = std::chrono::high_resolution_clock::now();
-            auto image_yuv = image_rgb.to_yuv_multithread();
-            auto stop = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
+    for (int i = 0; i < repeat_number; ++i) {
+        auto start = std::chrono::high_resolution_clock::now();
+        auto image_yuv = image_rgb.to_yuv_multithread();
+        auto stop = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
 
-            total_time += duration.count();
-            if (max_time < duration.count())
-                max_time = duration.count();
-        }
-
-        std::cout << "Multithread: ";
-        std::cout << "average time = " << total_time / 1000.0 / repeat_number << " ms, ";
-        std::cout << "max time = " << max_time / 1000.0 << " ms" << std::endl;
+        total_time += duration.count();
+        if (max_time < duration.count())
+            max_time = duration.count();
     }
+
+    std::cout << "Multithread: ";
+    std::cout << "average time = " << total_time / 1000.0 / repeat_number << " ms, ";
+    std::cout << "max time = " << max_time / 1000.0 << " ms" << std::endl;
+
+    total_time = 0;
+    max_time = 0;
+
+    for (int i = 0; i < repeat_number; ++i) {
+        auto start = std::chrono::high_resolution_clock::now();
+        auto image_yuv = image_rgb.to_yuv_simd();
+        auto stop = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
+
+        total_time += duration.count();
+        if (max_time < duration.count())
+            max_time = duration.count();
+    }
+
+    std::cout << "SIMD:        ";
+    std::cout << "average time = " << total_time / 1000.0 / repeat_number << " ms, ";
+    std::cout << "max time = " << max_time / 1000.0 << " ms" << std::endl;
 }
