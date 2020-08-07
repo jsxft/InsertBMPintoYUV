@@ -27,15 +27,20 @@ private:
     int     height, width;
     RGB     *buff;
 
+    [[noreturn]] ImageRGB(const ImageRGB &src) : width(src.width), height(src.height) {
+        buff = new RGB[width * height];
+        memcpy(buff, src.buff, 3 * height * width);
+    }
+
 public:
     ImageRGB(int height, int width);
     ~ImageRGB();
 
     RGB* operator [] (int row);
 
-    ImageYUV to_yuv();
-    ImageYUV to_yuv_multithread();
-    ImageYUV to_yuv_simd();
+    ImageYUV * to_yuv();
+    ImageYUV * to_yuv_multithread();
+    ImageYUV * to_yuv_simd();
 };
 
 
@@ -43,6 +48,13 @@ class ImageYUV {
 private:
     int     height, width;
     BYTE    *buff_y, *buff_u, *buff_v;
+
+    [[noreturn]] ImageYUV(const ImageYUV &src) : width(src.width), height(src.height) {
+        buff_y = new BYTE [3 * height * width / 2];
+        buff_u = buff_y + height * width;
+        buff_v = buff_u + height * width / 4;
+        memcpy(buff_y, src.buff_y, 3 * height * width / 2);
+    }
 
 public:
     ImageYUV(int height, int width);

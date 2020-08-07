@@ -5,63 +5,63 @@
 
 
 BYTE RGB::get_y() const {
-    return (66 * this->red + 129 * this->green + 25 * this->blue >> 8) +  16;
+    return ( 66 * red + 129 * green +  25 * blue >> 8) +  16;
 }
 
 BYTE RGB::get_u() const {
-    return (-38 * this->red - 74 * this->green + 112 * this->blue >> 8) + 128;
+    return (-38 * red -  74 * green + 112 * blue >> 8) + 128;
 }
 
 BYTE RGB::get_v() const {
-    return (112 * this->red - 94 * this->green - 18 * this->blue >> 8) + 128;
+    return (112 * red -  94 * green -  18 * blue >> 8) + 128;
 }
 
 ImageRGB::ImageRGB(int height, int width) : height(height), width(width) {
-    this->buff = new RGB [height * width];
+    buff = new RGB [height * width];
 }
 
 ImageRGB::~ImageRGB() {
-    delete [] this->buff;
+    delete [] buff;
 }
 
 RGB* ImageRGB::operator [] (int row) {
-    return this->buff + row * width;
+    return buff + row * width;
 }
 
-ImageYUV ImageRGB::to_yuv() {
-    ImageYUV image(this->height, this->width);
+ImageYUV * ImageRGB::to_yuv() {
+    auto image = new ImageYUV(height, width);
 
-    for (int row = 0; row < this->height; ++row)
-        for (int col = 0; col < this->width; ++col) {
-            image.set_y(row, col, (*this)[row][col].get_y());
-            image.add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
-            image.add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
+    for (int row = 0; row < height; ++row)
+        for (int col = 0; col < width; ++col) {
+            image->set_y(row, col, (*this)[row][col].get_y());
+            image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
+            image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
         }
 
     return image;
 }
 
-ImageYUV ImageRGB::to_yuv_multithread() {
+ImageYUV * ImageRGB::to_yuv_multithread() {
     int threads_number = std::thread::hardware_concurrency();
 
     if (threads_number < 2)
-        return this->to_yuv();
+        return to_yuv();
 
-    ImageYUV image(this->height, this->width);
+    auto image = new ImageYUV(height, width);
     std::vector<std::thread> threads;
 
-    static auto rgb_to_yuv = [](ImageRGB &image_rgb, ImageYUV &image_yuv, int thread, int threads_number) {
-        for (int row = 0; row < image_rgb.height; ++row)
-            for (int col = thread % threads_number; col < image_rgb.width; col += threads_number) {
-                image_yuv.set_y(row, col, image_rgb[row][col].get_y());
-                image_yuv.add_u(row / 2, col / 2, image_rgb[row][col].get_u() / 4);
-                image_yuv.add_v(row / 2, col / 2, image_rgb[row][col].get_v() / 4);
+    static auto rgb_to_yuv = [this, &image, threads_number](int thread) {
+        for (int row = 0; row < height; ++row)
+            for (int col = thread % threads_number; col < width; col += threads_number) {
+                image->set_y(row, col, (*this)[row][col].get_y());
+                image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
+                image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
             }
     };
 
     threads.reserve(threads_number);
     for (int thread = 0; thread < threads_number; ++thread)
-        threads.emplace_back(rgb_to_yuv, std::ref(*this), std::ref(image), thread, threads_number);
+        threads.emplace_back(rgb_to_yuv, thread);
 
     for (int thread = 0; thread < threads_number; ++thread)
         threads[thread].join();
@@ -69,11 +69,11 @@ ImageYUV ImageRGB::to_yuv_multithread() {
     return image;
 }
 
-ImageYUV ImageRGB::to_yuv_simd() {
-    ImageYUV image(this->height, this->width);
+ImageYUV * ImageRGB::to_yuv_simd() {
+    auto image = new ImageYUV(height, width);
 
-    for (int row = 0; row < this->height; ++row) {
-        for (int col = 0; col < this->width - 15; col += 16) {
+    for (int row = 0; row < height; ++row) {
+        for (int col = 0; col < width - 15; col += 16) {
             __m128i mask = _mm_setr_epi8(
                     0x02, 0x05, 0x08, 0x0b,
                     0x01, 0x04, 0x07, 0x0a,
@@ -131,16 +131,16 @@ ImageYUV ImageRGB::to_yuv_simd() {
             _mm_storeu_si128((__m128i *) v, yuv[2]);
 
             for (int i = 0; i < 16; ++i) {
-                image.set_y(row, col + i, y[i]);
-                image.add_u(row / 2, (col + i) / 2, u[i] / 4);
-                image.add_v(row / 2, (col + i) / 2, v[i] / 4);
+                image->set_y(row, col + i, y[i]);
+                image->add_u(row / 2, (col + i) / 2, u[i] / 4);
+                image->add_v(row / 2, (col + i) / 2, v[i] / 4);
             }
         }
 
-        for (int col = width & (-16); col < this->width; col++) {
-            image.set_y(row, col, (*this)[row][col].get_y());
-            image.add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
-            image.add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
+        for (int col = width & (-16); col < width; col++) {
+            image->set_y(row, col, (*this)[row][col].get_y());
+            image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
+            image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
         }
     }
 
@@ -149,59 +149,59 @@ ImageYUV ImageRGB::to_yuv_simd() {
 
 
 ImageYUV::ImageYUV(int height, int width) : height(height), width(width) {
-    this->buff_y = new BYTE [height * width + (height / 2) * (width / 2) * 2];
-    this->buff_u = this->buff_y + height * width;
-    this->buff_v = this->buff_u + (height / 2) * (width / 2);
+    buff_y = new BYTE [3 * height * width / 2];
+    buff_u = buff_y + height * width;
+    buff_v = buff_u + height * width / 4;
 }
 
 ImageYUV::~ImageYUV() {
-    delete [] this->buff_y;
+    delete [] buff_y;
 }
 
 BYTE* ImageYUV::get_buff() {
-    return this->buff_y;
+    return buff_y;
 }
 
 int ImageYUV::get_buff_size() const {
-    return this->height * this->width + (this->height / 2) * (this->width / 2) * 2;
+    return 3 * height * width / 2;
 }
 
 int ImageYUV::get_height() const {
-    return this->height;
+    return height;
 }
 
 int ImageYUV::get_width() const {
-    return this->width;
+    return width;
 }
 
 BYTE ImageYUV::get_y(int row, int col) const {
-    return this->buff_y[row * this->width + col];
+    return buff_y[row * width + col];
 }
 
 BYTE ImageYUV::get_u(int row, int col) const {
-    return this->buff_u[row * (this->width / 2) + col];
+    return buff_u[row * (width / 2) + col];
 }
 
 BYTE ImageYUV::get_v(int row, int col) const {
-    return this->buff_v[row * (this->width / 2) + col];
+    return buff_v[row * (width / 2) + col];
 }
 
 void ImageYUV::set_y(int row, int col, BYTE val) {
-    this->buff_y[row * this->width + col] = val;
+    buff_y[row * width + col] = val;
 }
 
 void ImageYUV::set_u(int row, int col, BYTE val) {
-    this->buff_u[row * (this->width / 2) + col] = val;
+    buff_u[row * (width / 2) + col] = val;
 }
 
 void ImageYUV::set_v(int row, int col, BYTE val) {
-    this->buff_v[row * (this->width / 2) + col] = val;
+    buff_v[row * (width / 2) + col] = val;
 }
 
 void ImageYUV::add_u(int row, int col, BYTE val) {
-    this->buff_u[row * (this->width / 2) + col] += val;
+    buff_u[row * (width / 2) + col] += val;
 }
 
 void ImageYUV::add_v(int row, int col, BYTE val) {
-    this->buff_v[row * (this->width / 2) + col] += val;
+    buff_v[row * (width / 2) + col] += val;
 }

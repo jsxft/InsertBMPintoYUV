@@ -38,7 +38,7 @@ typedef struct BITMAPINFOHEADER
 
 namespace utils {
     void print_headers(BITMAPFILEHEADER &bfh, BITMAPINFOHEADER &bih);
-    ImageRGB read_bmp(const std::string &path);
+    ImageRGB * read_bmp(const std::string &path);
 
     void insert_bmp_into_yuv(const std::string &path_image, const std::string &path_src, const std::string &path_dst,
                              int height, int width, int frames);
