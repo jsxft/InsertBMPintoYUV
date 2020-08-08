@@ -3,79 +3,67 @@
 
 
 #include <cstdint>
-#include <fstream>
 
 typedef uint8_t     BYTE;
-
-#pragma pack(push, r1, 1)
-typedef struct RGB {
-    BYTE    blue;
-    BYTE    green;
-    BYTE    red;
-
-    BYTE    get_y() const;
-    BYTE    get_u() const;
-    BYTE    get_v() const;
-} RGB;
-#pragma pack(pop, r1)
-
-class ImageYUV;
+class ImageYUV444;
+class ImageYUV420;
 
 
 class ImageRGB {
 private:
+    BYTE    *buff;
     int     height, width;
-    RGB     *buff;
 
-    [[noreturn]] ImageRGB(const ImageRGB &src) : width(src.width), height(src.height) {
-        buff = new RGB[width * height];
-        memcpy(buff, src.buff, 3 * height * width);
-    }
+    static void rgb_to_yuv(BYTE r, BYTE g, BYTE b, BYTE &y, BYTE &u, BYTE &v);
+    static void to_yuv444_mt_loc(ImageRGB *src, ImageYUV444 *res, int thread, int threads_number);
 
 public:
     ImageRGB(int height, int width);
     ~ImageRGB();
 
-    RGB* operator [] (int row);
-
-    ImageYUV * to_yuv();
-    ImageYUV * to_yuv_multithread();
-    ImageYUV * to_yuv_simd();
-};
-
-
-class ImageYUV {
-private:
-    int     height, width;
-    BYTE    *buff_y, *buff_u, *buff_v;
-
-    [[noreturn]] ImageYUV(const ImageYUV &src) : width(src.width), height(src.height) {
-        buff_y = new BYTE [3 * height * width / 2];
-        buff_u = buff_y + height * width;
-        buff_v = buff_u + height * width / 4;
-        memcpy(buff_y, src.buff_y, 3 * height * width / 2);
-    }
-
-public:
-    ImageYUV(int height, int width);
-    ~ImageYUV();
-
-    BYTE* get_buff();
-    int get_buff_size() const;
-
+    BYTE * get_buff(int row);
     int get_height() const;
     int get_width() const;
 
-    BYTE get_y(int row, int col) const;
-    BYTE get_u(int row, int col) const;
-    BYTE get_v(int row, int col) const;
+    void to_yuv444(ImageYUV444 *res);
+    void to_yuv444_mt(ImageYUV444 *res);
+    void to_yuv444_simd(ImageYUV444 *res);
+};
 
-    void set_y(int row, int col, BYTE val);
-    void set_u(int row, int col, BYTE val);
-    void set_v(int row, int col, BYTE val);
 
-    void add_u(int row, int col, BYTE val);
-    void add_v(int row, int col, BYTE val);
+class ImageYUV444 {
+    friend ImageRGB;
+
+private:
+    BYTE    *buff_y, *buff_u, *buff_v;
+    int     height, width;
+
+    static void to_yuv420_mt_loc(ImageYUV444 *src, ImageYUV420 *res, int thread, int threads_number);
+
+public:
+    ImageYUV444(int height, int width);
+    ~ImageYUV444();
+
+    void to_yuv420(ImageYUV420 *res);
+    void to_yuv420_mt(ImageYUV420 *res);
+};
+
+
+class ImageYUV420 {
+    friend ImageYUV444;
+
+private:
+    BYTE    *buff_y, *buff_u, *buff_v;
+    int     height, width;
+
+public:
+    ImageYUV420(int height, int width);
+    ~ImageYUV420();
+
+    BYTE * get_buff();
+    int get_buff_size() const;
+
+    void insert(ImageYUV420 *image, int x = 0, int y = 0);
 };
 
 

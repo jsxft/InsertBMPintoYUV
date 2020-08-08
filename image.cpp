@@ -1,77 +1,73 @@
+#include <cstring>
+#include <cassert>
+#include <iostream>
 #include <thread>
 #include <vector>
 #include <x86intrin.h>
 #include "image.h"
 
 
-BYTE RGB::get_y() const {
-    return ( 66 * red + 129 * green +  25 * blue >> 8) +  16;
-}
-
-BYTE RGB::get_u() const {
-    return (-38 * red -  74 * green + 112 * blue >> 8) + 128;
-}
-
-BYTE RGB::get_v() const {
-    return (112 * red -  94 * green -  18 * blue >> 8) + 128;
-}
-
 ImageRGB::ImageRGB(int height, int width) : height(height), width(width) {
-    buff = new RGB [height * width];
+    buff = new BYTE [3 * height * width];
 }
 
 ImageRGB::~ImageRGB() {
     delete [] buff;
 }
 
-RGB* ImageRGB::operator [] (int row) {
-    return buff + row * width;
+BYTE * ImageRGB::get_buff(int row) {
+    return buff + row * 3 * width;
 }
 
-ImageYUV * ImageRGB::to_yuv() {
-    auto image = new ImageYUV(height, width);
+int ImageRGB::get_height() const {
+    return height;
+}
 
+int ImageRGB::get_width() const {
+    return width;
+}
+
+void ImageRGB::rgb_to_yuv(BYTE r, BYTE g, BYTE b, BYTE &y, BYTE &u, BYTE &v) {
+    y = (( 66 * r + 129 * g +  25 * b) >> 8) +  16;
+    u = ((-38 * r -  74 * g + 112 * b) >> 8) + 128;
+    v = ((112 * r -  94 * g -  18 * b) >> 8) + 128;
+}
+
+void ImageRGB::to_yuv444(ImageYUV444 *res) {
     for (int row = 0; row < height; ++row)
-        for (int col = 0; col < width; ++col) {
-            image->set_y(row, col, (*this)[row][col].get_y());
-            image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
-            image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
+        for (int col = 0; col < width ; ++col) {
+            int i = row * width + col;
+            rgb_to_yuv(buff[3 * i + 2], buff[3 * i + 1], buff[3 * i],
+                       res->buff_y[i], res->buff_u[i], res->buff_v[i]);
         }
-
-    return image;
 }
 
-ImageYUV * ImageRGB::to_yuv_multithread() {
-    int threads_number = std::thread::hardware_concurrency();
+void ImageRGB::to_yuv444_mt_loc(ImageRGB *src, ImageYUV444 *res, int thread, int threads_number) {
+    for (int row = 0; row < src->height; ++row)
+        for (int col = thread; col < src->width; col += threads_number) {
+            int i = row * src->width + col;
+            rgb_to_yuv(src->buff[3 * i + 2], src->buff[3 * i + 1], src->buff[3 * i],
+                       res->buff_y[i], res->buff_u[i], res->buff_v[i]);
+        }
+}
+
+void ImageRGB::to_yuv444_mt(ImageYUV444 *res) {
+    int threads_number = (int) std::thread::hardware_concurrency();
 
     if (threads_number < 2)
-        return to_yuv();
+        return to_yuv444(res);
 
-    auto image = new ImageYUV(height, width);
     std::vector<std::thread> threads;
-
-    static auto rgb_to_yuv = [this, &image, threads_number](int thread) {
-        for (int row = 0; row < height; ++row)
-            for (int col = thread % threads_number; col < width; col += threads_number) {
-                image->set_y(row, col, (*this)[row][col].get_y());
-                image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
-                image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
-            }
-    };
-
     threads.reserve(threads_number);
+
     for (int thread = 0; thread < threads_number; ++thread)
-        threads.emplace_back(rgb_to_yuv, thread);
+        threads.emplace_back(to_yuv444_mt_loc, this, res, thread, threads_number);
 
     for (int thread = 0; thread < threads_number; ++thread)
         threads[thread].join();
-
-    return image;
 }
 
-ImageYUV * ImageRGB::to_yuv_simd() {
-    auto image = new ImageYUV(height, width);
-
+void ImageRGB::to_yuv444_simd(ImageYUV444 *res) {
     for (int row = 0; row < height; ++row) {
         for (int col = 0; col < width - 15; col += 16) {
             __m128i mask = _mm_setr_epi8(
@@ -82,7 +78,7 @@ ImageYUV * ImageRGB::to_yuv_simd() {
             __m128i clr[4], tmp[4];
 
             for (int i = 0; i < 4; ++i) {
-                clr[i] = _mm_loadu_si128((__m128i *) &((*this)[row][col + i * 4]));
+                clr[i] = _mm_loadu_si128((__m128i *) (buff + 3 * row * width + 3 * col + i * 12));
                 clr[i] = _mm_shuffle_epi8(clr[i], mask);
             }
 
@@ -131,77 +127,113 @@ ImageYUV * ImageRGB::to_yuv_simd() {
             _mm_storeu_si128((__m128i *) v, yuv[2]);
 
             for (int i = 0; i < 16; ++i) {
-                image->set_y(row, col + i, y[i]);
-                image->add_u(row / 2, (col + i) / 2, u[i] / 4);
-                image->add_v(row / 2, (col + i) / 2, v[i] / 4);
+                memcpy(res->buff_y + row * width + col, y, 16);
+                memcpy(res->buff_u + row * width + col, u, 16);
+                memcpy(res->buff_v + row * width + col, v, 16);
             }
         }
 
         for (int col = width & (-16); col < width; col++) {
-            image->set_y(row, col, (*this)[row][col].get_y());
-            image->add_u(row / 2, col / 2, (*this)[row][col].get_u() / 4);
-            image->add_v(row / 2, col / 2, (*this)[row][col].get_v() / 4);
+            int i = row * width + col;
+            rgb_to_yuv(buff[3 * i + 2], buff[3 * i + 1], buff[3 * i],
+                       res->buff_y[i], res->buff_u[i], res->buff_v[i]);
         }
     }
-
-    return image;
 }
 
 
-ImageYUV::ImageYUV(int height, int width) : height(height), width(width) {
+ImageYUV444::ImageYUV444(int height, int width) : height(height), width(width) {
+    buff_y = new BYTE [3 * height * width];
+    buff_u = buff_y + height * width;
+    buff_v = buff_u + height * width;
+}
+
+ImageYUV444::~ImageYUV444() {
+    delete [] buff_y;
+}
+
+void ImageYUV444::to_yuv420(ImageYUV420 *res) {
+    memcpy(res->buff_y, buff_y, height * width);
+
+    for (int row = 0; row < height; row += 2)
+        for (int col = 0; col < width; col += 2) {
+            int i = row * width / 4 + col / 2;      // = row/2 * width/2 + col/2
+            int j1 = row * width + col;
+            int j2 = (row + 1) * width + col;
+
+            res->buff_u[i] = buff_u[j1]/4 + buff_u[j1+1]/4 + buff_u[j2]/4 + buff_u[j2+1]/4;
+            res->buff_v[i] = buff_v[j1]/4 + buff_v[j1+1]/4 + buff_v[j2]/4 + buff_v[j2+1]/4;
+        }
+}
+
+void ImageYUV444::to_yuv420_mt_loc(ImageYUV444 *src, ImageYUV420 *res, int thread, int threads_number) {
+    if (thread == 0) {
+        memcpy(res->buff_y, src->buff_y, src->height * src->width);
+        return;
+    }
+
+    thread--;
+    threads_number--;
+
+    for (int row = 0; row < src->height; row += 2)
+        for (int col = thread * 2; col < src->width; col += 2 * threads_number) {
+            int i = row * src->width / 4 + col / 2;      // = row/2 * width/2 + col/2
+            int j1 = row * src->width + col;
+            int j2 = (row + 1) * src->width + col;
+
+            res->buff_u[i] = src->buff_u[j1]/4 + src->buff_u[j1+1]/4 + src->buff_u[j2]/4 + src->buff_u[j2+1]/4;
+            res->buff_v[i] = src->buff_v[j1]/4 + src->buff_v[j1+1]/4 + src->buff_v[j2]/4 + src->buff_v[j2+1]/4;
+        }
+}
+
+void ImageYUV444::to_yuv420_mt(ImageYUV420 *res) {
+    int threads_number = (int) std::thread::hardware_concurrency();
+
+    if (threads_number < 2)
+        return to_yuv420(res);
+
+    std::vector<std::thread> threads;
+    threads.reserve(threads_number);
+
+    for (int thread = 0; thread < threads_number; ++thread)
+        threads.emplace_back(to_yuv420_mt_loc, this, res, thread, threads_number);
+
+    for (int thread = 0; thread < threads_number; ++thread)
+        threads[thread].join();
+}
+
+
+ImageYUV420::ImageYUV420(int height, int width) : height(height), width(width) {
     buff_y = new BYTE [3 * height * width / 2];
     buff_u = buff_y + height * width;
     buff_v = buff_u + height * width / 4;
 }
 
-ImageYUV::~ImageYUV() {
+ImageYUV420::~ImageYUV420() {
     delete [] buff_y;
 }
 
-BYTE* ImageYUV::get_buff() {
+BYTE * ImageYUV420::get_buff() {
     return buff_y;
 }
 
-int ImageYUV::get_buff_size() const {
+int ImageYUV420::get_buff_size() const {
     return 3 * height * width / 2;
 }
 
-int ImageYUV::get_height() const {
-    return height;
-}
+void ImageYUV420::insert(ImageYUV420 *image, int x, int y) {
+    assert(x % 2 == 0);
+    assert(y % 2 == 0);
 
-int ImageYUV::get_width() const {
-    return width;
-}
+    assert(width >= image->width + x);
+    assert(height >= image->height + y);
 
-BYTE ImageYUV::get_y(int row, int col) const {
-    return buff_y[row * width + col];
-}
-
-BYTE ImageYUV::get_u(int row, int col) const {
-    return buff_u[row * (width / 2) + col];
-}
-
-BYTE ImageYUV::get_v(int row, int col) const {
-    return buff_v[row * (width / 2) + col];
-}
-
-void ImageYUV::set_y(int row, int col, BYTE val) {
-    buff_y[row * width + col] = val;
-}
-
-void ImageYUV::set_u(int row, int col, BYTE val) {
-    buff_u[row * (width / 2) + col] = val;
-}
-
-void ImageYUV::set_v(int row, int col, BYTE val) {
-    buff_v[row * (width / 2) + col] = val;
-}
-
-void ImageYUV::add_u(int row, int col, BYTE val) {
-    buff_u[row * (width / 2) + col] += val;
-}
-
-void ImageYUV::add_v(int row, int col, BYTE val) {
-    buff_v[row * (width / 2) + col] += val;
+    for (int row = 0; row < image->height; ++row) {
+        memcpy(buff_y + (row + y) * width + x, image->buff_y + row * image->width, image->width);
+    }
+    
+    for (int row = 0; row < image->height / 2; ++row) {
+        memcpy(buff_u + (row + y / 2) * width / 2 + x / 2, image->buff_u + row * image->width / 2, image->width / 2);
+        memcpy(buff_v + (row + y / 2) * width / 2 + x / 2, image->buff_v + row * image->width / 2, image->width / 2);
+    }
 }

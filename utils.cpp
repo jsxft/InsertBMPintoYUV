@@ -1,6 +1,7 @@
 #include <cassert>
 #include <iostream>
 #include <thread>
+#include <fstream>
 #include "utils.h"
 
 
@@ -56,7 +57,7 @@ ImageRGB * utils::read_bmp(const std::string &path) {
     auto image = new ImageRGB(bih.biHeight, bih.biWidth);
 
     for (int row = bih.biHeight - 1; row >= 0; --row) {
-        fh.read((char *) (*image)[row], 3 * bih.biWidth);
+        fh.read((char *) image->get_buff(row), 3 * bih.biWidth);
         fh.seekg(bih.biWidth % 4, fh.cur);
     }
 
@@ -66,119 +67,105 @@ ImageRGB * utils::read_bmp(const std::string &path) {
 }
 
 void utils::insert_bmp_into_yuv(const std::string &path_image, const std::string &path_src, const std::string &path_dst,
-                                int height, int width, int frames) {
-    auto image_rgb = read_bmp(path_image);
-    auto image_yuv = image_rgb->to_yuv();
-    auto frame = new ImageYUV(height, width);
+                                int height, int width, int frames, int x, int y) {
+    auto image_rgb      = read_bmp(path_image);
+    auto image_yuv444   = new ImageYUV444(image_rgb->get_height(), image_rgb->get_width());
+    auto image_yuv420   = new ImageYUV420(image_rgb->get_height(), image_rgb->get_width());
+    auto frame          = new ImageYUV420(height, width);
+
+    image_rgb   ->to_yuv444(image_yuv444);
+    image_yuv444->to_yuv420(image_yuv420);
 
     delete image_rgb;
+    delete image_yuv444;
 
     std::fstream file_src(path_src, std::fstream::in | std::fstream::binary);
     std::fstream file_dst(path_dst, std::fstream::out | std::fstream::binary);
 
     for (int frame_num = 0; frame_num < frames; ++frame_num) {
         file_src.read((char *)frame->get_buff(), frame->get_buff_size());
-
-        for (int row = 0; row < image_yuv->get_height(); ++row)
-            for (int col = 0; col < image_yuv->get_width(); ++col)
-                frame->set_y(row, col, image_yuv->get_y(row, col));
-
-        for (int row = 0; row < image_yuv->get_height() / 2; ++row)
-            for (int col = 0; col < image_yuv->get_width() / 2; ++col) {
-                frame->set_u(row, col, image_yuv->get_u(row, col));
-                frame->set_v(row, col, image_yuv->get_v(row, col));
-            }
-
+        frame->insert(image_yuv420, x, y);
         file_dst.write((char *)frame->get_buff(), frame->get_buff_size());
     }
 
     file_src.close();
     file_dst.close();
 
-    delete image_yuv;
+    delete image_yuv420;
     delete frame;
 }
 
-void utils::insert_bmp_into_yuv_multithread(const std::string &path_image, const std::string &path_src,
-                                            const std::string &path_dst, int height, int width, int frames) {
-    auto image_rgb = read_bmp(path_image);
-    auto image_yuv = image_rgb->to_yuv_multithread();
-    auto frame = new ImageYUV(height, width);
+void utils::insert_bmp_into_yuv_multithread(const std::string &path_image, const std::string &path_src, const std::string &path_dst,
+                                int height, int width, int frames, int x, int y) {
+    auto image_rgb      = read_bmp(path_image);
+    auto image_yuv444   = new ImageYUV444(image_rgb->get_height(), image_rgb->get_width());
+    auto image_yuv420   = new ImageYUV420(image_rgb->get_height(), image_rgb->get_width());
+    auto frame          = new ImageYUV420(height, width);
+
+    image_rgb   ->to_yuv444_mt(image_yuv444);
+    image_yuv444->to_yuv420_mt(image_yuv420);
 
     delete image_rgb;
+    delete image_yuv444;
 
     std::fstream file_src(path_src, std::fstream::in | std::fstream::binary);
     std::fstream file_dst(path_dst, std::fstream::out | std::fstream::binary);
 
     for (int frame_num = 0; frame_num < frames; ++frame_num) {
         file_src.read((char *)frame->get_buff(), frame->get_buff_size());
-
-        for (int row = 0; row < image_yuv->get_height(); ++row)
-            for (int col = 0; col < image_yuv->get_width(); ++col)
-                frame->set_y(row, col, image_yuv->get_y(row, col));
-
-        for (int row = 0; row < image_yuv->get_height() / 2; ++row)
-            for (int col = 0; col < image_yuv->get_width() / 2; ++col) {
-                frame->set_u(row, col, image_yuv->get_u(row, col));
-                frame->set_v(row, col, image_yuv->get_v(row, col));
-            }
-
+        frame->insert(image_yuv420, x, y);
         file_dst.write((char *)frame->get_buff(), frame->get_buff_size());
     }
 
     file_src.close();
     file_dst.close();
 
-    delete image_yuv;
+    delete image_yuv420;
     delete frame;
 }
+void utils::insert_bmp_into_yuv_simd(const std::string &path_image, const std::string &path_src, const std::string &path_dst,
+                                int height, int width, int frames, int x, int y) {
+    auto image_rgb      = read_bmp(path_image);
+    auto image_yuv444   = new ImageYUV444(image_rgb->get_height(), image_rgb->get_width());
+    auto image_yuv420   = new ImageYUV420(image_rgb->get_height(), image_rgb->get_width());
+    auto frame          = new ImageYUV420(height, width);
 
-void utils::insert_bmp_into_yuv_simd(const std::string &path_image, const std::string &path_src,
-                                            const std::string &path_dst, int height, int width, int frames) {
-    auto image_rgb = read_bmp(path_image);
-    auto image_yuv = image_rgb->to_yuv_simd();
-    auto frame = new ImageYUV(height, width);
+    image_rgb   ->to_yuv444_simd(image_yuv444);
+    image_yuv444->to_yuv420(image_yuv420);
 
     delete image_rgb;
+    delete image_yuv444;
 
     std::fstream file_src(path_src, std::fstream::in | std::fstream::binary);
     std::fstream file_dst(path_dst, std::fstream::out | std::fstream::binary);
 
     for (int frame_num = 0; frame_num < frames; ++frame_num) {
         file_src.read((char *)frame->get_buff(), frame->get_buff_size());
-
-        for (int row = 0; row < image_yuv->get_height(); ++row)
-            for (int col = 0; col < image_yuv->get_width(); ++col)
-                frame->set_y(row, col, image_yuv->get_y(row, col));
-
-        for (int row = 0; row < image_yuv->get_height() / 2; ++row)
-            for (int col = 0; col < image_yuv->get_width() / 2; ++col) {
-                frame->set_u(row, col, image_yuv->get_u(row, col));
-                frame->set_v(row, col, image_yuv->get_v(row, col));
-            }
-
+        frame->insert(image_yuv420, x, y);
         file_dst.write((char *)frame->get_buff(), frame->get_buff_size());
     }
 
     file_src.close();
     file_dst.close();
 
-    delete image_yuv;
+    delete image_yuv420;
     delete frame;
 }
+
 
 void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int repeat_number) {
     auto image_rgb = read_bmp(path_image);
+    auto image_yuv444   = new ImageYUV444(image_rgb->get_height(), image_rgb->get_width());
+    auto image_yuv420   = new ImageYUV420(image_rgb->get_height(), image_rgb->get_width());
 
     uint64_t total_time = 0, max_time = 0;
 
     for (int i = 0; i < repeat_number; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        auto image_yuv = image_rgb->to_yuv();
+        image_rgb   ->to_yuv444(image_yuv444);
+        image_yuv444->to_yuv420(image_yuv420);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
-
-        delete image_yuv;
 
         total_time += duration.count();
         if (max_time < duration.count())
@@ -194,11 +181,10 @@ void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int r
 
     for (int i = 0; i < repeat_number; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        auto image_yuv = image_rgb->to_yuv_multithread();
+        image_rgb   ->to_yuv444_mt(image_yuv444);
+        image_yuv444->to_yuv420_mt(image_yuv420);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
-
-        delete image_yuv;
 
         total_time += duration.count();
         if (max_time < duration.count())
@@ -214,11 +200,10 @@ void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int r
 
     for (int i = 0; i < repeat_number; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        auto image_yuv = image_rgb->to_yuv_simd();
+        image_rgb   ->to_yuv444_simd(image_yuv444);
+        image_yuv444->to_yuv420(image_yuv420);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (stop - start);
-
-        delete image_yuv;
 
         total_time += duration.count();
         if (max_time < duration.count())
@@ -230,4 +215,6 @@ void utils::compare_convert_time_rgb_to_yuv(const std::string &path_image, int r
     std::cout << "max time = " << max_time / 1000.0 << " ms" << std::endl;
 
     delete image_rgb;
+    delete image_yuv420;
+    delete image_yuv444;
 }
